@@ -1,0 +1,88 @@
+name: RSS Watcher
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Mark current RSS items as already seen"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tweegen-state-writer
+  queue: max
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout application
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: app
+
+      - name: Checkout automation state
+        uses: actions/checkout@v4
+        with:
+          ref: automation-state
+          path: state_repo
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install dependencies
+        working-directory: app
+        run: pip install -r requirements.txt
+
+      - name: Run RSS watcher
+        id: watcher
+        working-directory: app
+        env:
+          STATE_DIR: ../state_repo/logs
+          LOCAL_TIMEZONE: Asia/Kolkata
+        run: |
+          if [ "${{ inputs.bootstrap }}" = "true" ]; then
+            python -m runners.rss_watcher --bootstrap
+          else
+            python -m runners.rss_watcher
+          fi
+
+      - name: Commit state changes
+        working-directory: state_repo
+        run: |
+          git config user.name "tweegen-bot"
+          git config user.email "tweegen-bot@users.noreply.github.com"
+
+          git add logs/
+
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+          else
+            git commit -m "state: RSS watcher run $GITHUB_RUN_ID"
+            git push origin automation-state
+          fi
+
+      - name: Trigger Tweet Generator
+        if: steps.watcher.outputs.has_discovered == 'true'
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run tweet_generator.yml \
+            --repo "${{ github.repository }}" \
+            --ref main

@@ -1,0 +1,90 @@
+name: Tweet Generator
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tweegen-state-writer
+  queue: max
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout application
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: app
+
+      - name: Checkout automation state
+        uses: actions/checkout@v4
+        with:
+          ref: automation-state
+          path: state_repo
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: app/requirements.txt
+
+      - name: Install dependencies
+        working-directory: app
+        run: pip install -r requirements.txt
+
+      - name: Generate tweets
+        id: generator
+        working-directory: app
+        env:
+          STATE_DIR: ../state_repo/logs
+          LOCAL_TIMEZONE: Asia/Kolkata
+
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.6-flash
+          GEMINI_THINKING_LEVEL: low
+          GEMINI_TRANSIENT_RETRIES: "3"
+
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: openai/gpt-oss-20b
+          GROQ_REASONING_EFFORT: low
+
+          LLM_MAX_OUTPUT_TOKENS: "800"
+
+          # Keep the real style prompt private in the
+          # public repository.
+          TWEET_SYSTEM_PROMPT: ${{ secrets.TWEET_SYSTEM_PROMPT }}
+          SYSTEM_PROMPT_PATH: prompts/system_prompt.txt
+        run: python -m runners.tweet_generator
+
+      - name: Commit generated tweets
+        working-directory: state_repo
+        run: |
+          git config user.name "tweegen-bot"
+          git config user.email "tweegen-bot@users.noreply.github.com"
+
+          git add logs/
+
+          if git diff --cached --quiet; then
+            echo "No generated tweets to commit."
+          else
+            git commit -m "state: generated tweets run $GITHUB_RUN_ID"
+            git push origin automation-state
+          fi
+
+      - name: Trigger Tweet Dispatcher
+        if: steps.generator.outputs.has_ready == 'true'
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run tweet_dispatcher.yml \
+            --repo "${{ github.repository }}" \
+            --ref main
