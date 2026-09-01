@@ -1,4 +1,4 @@
-# Tweegen GitHub Actions pipeline
+# Kestrel Pipeline
 
 A lightweight, database-free automation pipeline for:
 
