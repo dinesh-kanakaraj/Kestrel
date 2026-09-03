@@ -114,7 +114,7 @@ def get_settings() -> Settings:
         ).lower(),
         llm_max_output_tokens=_env_int(
             "LLM_MAX_OUTPUT_TOKENS",
-            1500,
+            280,
         ),
         buffer_api_url=os.getenv(
             "BUFFER_API_URL",

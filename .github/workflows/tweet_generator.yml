@@ -56,7 +56,7 @@ jobs:
           GROQ_MODEL: openai/gpt-oss-20b
           GROQ_REASONING_EFFORT: low
 
-          LLM_MAX_OUTPUT_TOKENS: "800"
+          LLM_MAX_OUTPUT_TOKENS: "280"
 
           # Keep the real style prompt private in the
           # public repository.
